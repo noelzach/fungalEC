@@ -1,0 +1,1164 @@
+---
+title: "Dose Response Analysis"
+author: "Zachary Noel"
+date: "January 14, 2016"
+output:
+  html_document: default
+  md_document:
+    variant: markdown_github
+---
+####Intro:
+The following code was written to analyze dose response data from fungal and oomycete fungicide sensitivity studies. It is written in an attempt to point out some issues, we've come accross, when dealing with these data and how we have dealt with them. 
+
+####Purpose:
+The purpose of this project was to (1) point out some inconsistencies with the 
+way the package 'drc' in R calculates EC50, by default, and the way FRAC (Fungicide Resistance Action Commitee) defines EC50, and (2) examine hormetic-effect models in practical application for the phytopathology community.
+
+#####Start:
+
+```{r eval = TRUE, echo = FALSE, results = 'hide'}
+rm(list = ls(all=TRUE)) # removes all variables in the global environment so you start fresh
+
+Sys.time() # prints out the time and date you ran the code
+
+options(scipen = 999) # stops anything from being in scientific notation
+```
+
+#####Lets just make some plots to show what some dose response curves look like 
+```{r}
+curve.type <- data.frame(read.csv("curvetypes.csv", na.strings = "na"))
+library(drc)
+drc.example.ll4 <- drm(curve.type$response[curve.type$curve_type == "Symmetric "] ~ 
+                        curve.type$dose[curve.type$curve_type == "Symmetric "],  
+                    fct = LL.4(fixed = c(NA, 
+                                         20, 
+                                         100, 
+                                         NA),  
+                               names = c("Slope", 
+                                         "Lower", 
+                                         "Upper", 
+                                         "EC50")),
+                    na.action = na.omit)
+rel.ll4 <- data.frame(ED(drc.example.ll4,respLev = c(50), type = "relative"))
+abs.ll4 <- data.frame(ED(drc.example.ll4,respLev = c(50), type = "absolute"))
+rel.ll4.ec50 <- as.numeric(rel.ll4[1])
+abs.ll4.ec50 <- as.numeric(abs.ll4[1])
+drc.example.w2.4 <- drm(curve.type$response[curve.type$curve_type == "Asymmetric"] ~ 
+                        curve.type$dose[curve.type$curve_type == "Asymmetric"],  
+                    fct = W2.4(fixed = c(NA, 
+                                         20, 
+                                         NA, 
+                                         NA),  
+                               names = c("Slope", 
+                                         "Lower", 
+                                         "Upper", 
+                                         "EC50")),
+                    na.action = na.omit)
+rel.w2.4 <- data.frame(ED(drc.example.w2.4,respLev = c(50), type = "relative"))
+abs.w2.4 <- data.frame(ED(drc.example.w2.4,respLev = c(50), type = "absolute"))
+rel.w2.4.ec50 <- as.numeric(rel.w2.4[1])
+abs.w2.4.ec50 <- as.numeric(abs.w2.4[1])
+
+#Predicting and ploting
+pred.rel.w2.4 <- predict(drc.example.w2.4, data.frame(dose=rel.w2.4.ec50, CURVE=c("1")), se.fit = TRUE)
+pred.rel.ll4 <- predict(drc.example.ll4, data.frame(dose=rel.ll4.ec50, CURVE=c("1")), se.fit = TRUE)
+
+#LL.4 negative lower bound
+drc.example.ll4.2 <- drm(curve.type$response[curve.type$curve_type == "Symmetric "] ~ 
+                        curve.type$dose[curve.type$curve_type == "Symmetric "],  
+                    fct = LL.4(fixed = c(NA, 
+                                         -10, 
+                                         100, 
+                                         NA),  
+                               names = c("Slope", 
+                                         "Lower", 
+                                         "Upper", 
+                                         "EC50")),
+                    na.action = na.omit)
+rel.ll4.2 <- data.frame(ED(drc.example.ll4.2,respLev = c(50), type = "relative"))
+abs.ll4.2 <- data.frame(ED(drc.example.ll4.2,respLev = c(50), type = "absolute"))
+rel.ll4.ec50.2 <- as.numeric(rel.ll4.2[1])
+abs.ll4.ec50.2 <- as.numeric(abs.ll4.2[1])
+pred.rel.ll4.2 <- predict(drc.example.ll4.2, data.frame(dose=rel.ll4.ec50.2, CURVE=c("1")), se.fit = TRUE)
+
+#Hormetic model examples
+drc.example.bc4 <- drm(curve.type$response[curve.type$curve_type == "Asymmetric hormetic"] ~ 
+                        curve.type$dose[curve.type$curve_type == "Asymmetric hormetic"],  
+                    fct = BC.5(fixed = c(NA, 
+                                         20, 
+                                         NA, 
+                                         NA, 
+                                         NA)),
+                    na.action = na.omit)
+rel.bc4 <- data.frame(ED(drc.example.bc4,respLev = c(50), type = "relative"))
+abs.bc4 <- data.frame(ED(drc.example.bc4,respLev = c(50), type = "absolute"))
+rel.bc4.ec50 <- as.numeric(rel.bc4[1])
+abs.bc4.ec50 <- as.numeric(abs.bc4[1])
+pred.rel.bc4 <- predict(drc.example.bc4, data.frame(dose=rel.bc4.ec50, CURVE=c("1")), se.fit = TRUE)
+pred.abs.bc4 <- predict(drc.example.bc4, data.frame(dose=0.1832, CURVE=c("1")), se.fit = TRUE)
+
+par(mfrow = c(2,2))
+
+plot(drc.example.ll4, 
+     #xlab = expression(bold("log fungicide concentration (μg ml"^-1~")")),
+     #ylab = expression(bold("Percent growth, relative to control")),
+     xlab = "",
+     ylab = "",
+     lwd = 2, type = "n", pch = 19, xaxt = "n", yaxt = "n", legend = F, cex.axis = 1.2)
+points(abs.ll4.ec50, 50, pch = 19, cex = 1.5)
+points(rel.ll4.ec50, pred.rel.ll4[1], pch = 15, cex = 1.5)
+text(abs.ll4.ec50, 50, labels=expression(bold("Absolute EC"[50])), cex= 1, adj = c(-0.1, 1))
+text(rel.ll4.ec50, pred.rel.ll4[1], labels=expression(bold("Relative EC"[50])), cex= 1, adj = c(-0.1, -0.9))
+#arrows(x0 = 10, y0 = 15, x1 = 10, y1 = 0, code=1, lwd = 2)
+abline(h = 20, lty = 2)
+
+plot(drc.example.ll4.2, 
+     #xlab = expression(bold("log fungicide concentration (μg ml"^-1~")")),
+     #ylab = expression(bold("Percent growth, relative to control")),
+     xlab = "",
+     ylab = "",
+     lwd = 2, type = "n", pch = 19, xaxt = "n", yaxt = "n", legend = F, cex.axis = 1.2, ylim = c(-13, 100))
+points(abs.ll4.ec50.2, 50, pch = 19, cex = 1.5)
+points(rel.ll4.ec50.2, pred.rel.ll4.2[1], pch = 15, cex = 1.5)
+text(abs.ll4.ec50.2, 50, labels=expression(bold("Absolute EC"[50])), cex= 1, adj = c(-0.1, -0.9))
+text(rel.ll4.ec50.2, pred.rel.ll4.2[1], labels=expression(bold("Relative EC"[50])), cex= 1, adj = c(-0.1, 1))
+abline(h = -10, lty = 2)
+#arrows(x0 = 10, y0 = 15, x1 = 10, y1 = 0, code=1, lwd = 2)
+
+plot(drc.example.w2.4, 
+     #xlab = expression(bold("log fungicide concentration (μg ml"^-1~")")),
+     #ylab = expression(bold("Percent growth, relative to control")),
+     xlab = "",
+     ylab = "",
+     lwd = 2, type = "n", pch = 19, xaxt = "n", yaxt = "n", legend = F, cex.axis = 1.2)
+#arrows(x0 = 10, y0 = 15, x1 = 10, y1 = 0, code=1, lwd = 2)
+points(abs.w2.4.ec50, 50, pch = 19, cex = 1.5)
+points(rel.w2.4.ec50, pred.rel.w2.4[1], pch = 15, cex = 1.5)
+text(abs.w2.4.ec50, 50, labels=expression(bold("Absolute EC"[50])), cex= 1, adj = c(0.9, 2))
+text(rel.w2.4.ec50, pred.rel.w2.4[1], labels=expression(bold("Relative EC"[50])), cex= 1, adj = c(1.1, -0.7))
+abline(h = 20, lty = 2)
+
+plot(drc.example.bc4, 
+     #xlab = expression(bold("log fungicide concentration (μg ml"^-1~")")),
+     #ylab = expression(bold("Percent growth, relative to control")),
+     xlab = "",
+     ylab = "",
+     lwd = 2, type = "n", pch = 19, xaxt = "n", yaxt = "n", legend = F, cex.axis = 1.2)
+points(0.1832, 50, pch = 19, cex = 1.5)
+points(rel.bc4.ec50, pred.rel.bc4[1], pch = 15, cex = 1.5)
+text(0.1832, 50, labels=expression(bold("Absolute EC"[50])), cex= 1, adj = c(1.1, 0.9))
+text(rel.bc4.ec50, pred.rel.bc4[1], labels=expression(bold("Relative EC"[50])), cex= 1, adj = c(-0.07, 0.1))
+#arrows(x0 = 10, y0 = 15, x1 = 10, y1 = 0, code=1, lwd = 2)
+abline(h = 20, lty = 2)
+```
+
+The following code will load in the data as a .csv file. The data you read in will be called growth.un for "growth uneditted". It is called this because we have not edditted the data at all i.e. ommited observations, or specific isolates that we may not want to anaylize. 
+
+It is useful to have this object in memory that way you can rename it once edited and always go back to the original dataframe. 
+
+We will have one data frame called growth.un.mef for mefenoxam data. 
+```{r}
+growth.un.mef <- data.frame(read.csv("EC50.all.csv", na.strings = "na"))
+growth.un.mef <- data.frame(na.omit(growth.un.mef)) #omits missing values
+```
+######Data edditing step
+Step 1. We do not want to analyze any isolate that had grown accross the entire plate at the non-ammended control, so lets get rid of those isolates.The size of the plate is 85 mm so if conc = 0 and coldiam = 85, lets get rid of the isolate. 
+```{r}
+length(levels(growth.un.mef$is)) # Number of isolates before subset
+bad.isolates <- as.character(unique(growth.un.mef$is[growth.un.mef$coldiam == 85 & growth.un.mef$conc == 0]))
+growth.un.mef <- growth.un.mef[!growth.un.mef$is %in% bad.isolates,]
+growth.un.mef$is <- factor(growth.un.mef$is) 
+length(levels(growth.un.mef$is)) # Number of isolates after subset
+```
+Step 2. We also do not really want to evaluate anything from trial 2 since it was not completely repeated. 
+```{r}
+growth.un.mef <- growth.un.mef[!growth.un.mef$trial == 2,]
+```
+Step 3. Finally we also do not want to analyze any of the repeated reference isolates. We will use the grep function to select all the reference isolates. 
+```{r}
+REF.levels <- grep(pattern = "IASO_1-16.3rt", x = levels(growth.un.mef$is), value = TRUE)
+
+growth.un.mef <- growth.un.mef[!growth.un.mef$is %in% REF.levels,]
+growth.un.mef$is <- factor(growth.un.mef$is)
+
+length(levels(growth.un.mef$is)) # Number of isolates after subset
+```
+Step 4. Subtract the plug size from the colony diamter. 
+```{r  eval = TRUE}
+growth.un.mef$coldiam <- growth.un.mef$coldiam - 3.7
+```
+```{r echo = FALSE} 
+nm <- levels(growth.un.mef$is)
+loc.count <- NULL
+for (i in seq_along(nm)) {
+  loc <- as.character(unique(growth.un.mef$location[growth.un.mef$is == nm[[i]]]))
+  loc.count <- rbind(loc.count,c(nm[[i]],loc))
+}
+colnames(loc.count) <- c("isolate", "location")
+loc.count <- data.frame(loc.count)
+
+loc.count <- within(loc.count, 
+                   location <- factor(location, 
+                                      levels=names(sort(table(location), 
+                                                        decreasing=TRUE))))
+
+```
+
+Now that we have the dataset with all 75 isolates we want to analyze, lets do some data exploration, first lets plot the number of isolates in this dataset by state. 
+
+```{r echo = FALSE, fig.height=10, fig.width=10, warning=FALSE,fig.cap= "Figure 1. Number of Pythium oopapillum isolates from each state in the dataset."}
+library(ggplot2)
+ggplot(loc.count, aes(x = factor(location))) + 
+  geom_bar() +
+  theme_bw() +
+  scale_y_continuous(breaks = seq(from = 0, to = 20, by = 2), limits = c(0, 20)) +
+  xlab("States") +
+  ylab("Isolates per state") +
+  ggtitle("Isolates per state") +
+  theme(axis.text.x = element_text(size = 30, face = "bold", 
+                                   angle = 90, hjust = 1, vjust = 1),
+        axis.text.y = element_text(size = 30, face = "bold"),
+        axis.title.x = element_text(size = 40, face = "bold"),
+        axis.title.y = element_text(size = 40, face = "bold"),
+        legend.title = element_text(size  = 40, face = "bold"),
+        legend.text = element_text(size  = 30, face = "bold.italic"),
+        title = element_text(size = 30, face = "bold")) 
+
+```
+
+######Data analysis step
+
+Now that we have got rid of the levels we do not want to analyze we will average the two colony measurements together
+```{r}
+growth.mef <- data.frame(
+  setNames(aggregate(cbind(growth.un.mef$coldiamplug,
+                           growth.un.mef$relgrowth),
+                     list(growth.un.mef$is,
+                          growth.un.mef$rep,
+                          growth.un.mef$location,
+                          growth.un.mef$lat,
+                          growth.un.mef$conc), 
+                      mean), c("is",
+                               "rep",
+                               "location",
+                               "lat",
+                               "conc",
+                               "meancoldiam",
+                               "relgrowth")))
+```
+The loop will run a regression for each individual isolate and will print out the summary statistics. It will also generate a table at the end, entitled EC50 ordered by species, showing the EC50, and some various summary statistics pulled out from the loop as it was running. 
+
+This loop uses LL.4
+```{r warning=FALSE, tidy = TRUE, echo=TRUE, message=FALSE, results = 'hide'}
+library(drc)
+EC50.ll4 <- NULL
+rel.grow <- NULL
+nm <- levels(growth.mef$is)
+for (i in seq_along(nm)) {
+growth.mef.drc <- drm(100*growth.mef$relgrowth[growth.mef$is == nm[[i]]] ~ 
+                      growth.mef$conc[growth.mef$is == nm[[i]]],  
+                    fct = LL.4(fixed = c(NA, 
+                                         NA, 
+                                         NA, 
+                                         NA),  
+                               names = c("Slope", 
+                                         "Lower", 
+                                         "Upper", 
+                                         "EC50")),
+                    na.action = na.omit)
+#outputs the summary of the paramters including the estimate, standard error, t-value, and p-value
+#outputs it into a data frame called summary.mef.fit for "summary of fit"
+summary.mef.fit <- data.frame(summary(growth.mef.drc)[[3]])
+lower <- summary.mef.fit$Estimate[2]
+#outputs the summary of just the EC50 data including the estimate, standard error, upper and lower bounds of the 95% confidence intervals around the EC50
+print(nm[[i]])
+EC50.rel.mef <- data.frame(ED(growth.mef.drc, 
+                             respLev = c(50), 
+                             type = "relative",
+                             interval = "delta"),
+                          level = 0.95)
+EC50.abs.mef <- data.frame(ED(growth.mef.drc, 
+                             respLev = c(50), 
+                             type = "absolute",
+                             interval = "delta"),
+                          level = 0.95)
+print(summary.mef.fit)
+fit <- modelFit(growth.mef.drc)
+lackfitpvalue <- fit[5]$`p value`[2]
+pvalue <- summary.mef.fit[4,4][[1]]
+print(fit)
+
+#relative EC50
+rel.ec50 <- EC50.rel.mef[1][[1]]
+rel.stderr <- EC50.rel.mef[2][[1]]
+rel.lower <- EC50.rel.mef[3][[1]]
+rel.upper <- EC50.rel.mef[4][[1]]
+
+#absolute EC50
+abs.ec50 <- EC50.abs.mef[1][[1]]
+abs.stderr <- EC50.abs.mef[2][[1]]
+abs.lower <- EC50.abs.mef[3][[1]]
+abs.upper <- EC50.abs.mef[4][[1]]
+
+compED <- comped(c(rel.ec50, abs.ec50), se = c(rel.stderr, abs.stderr), interval = TRUE, 
+       operator = "-", level = 0.95)
+
+EC50_i <- data.frame(cbind(nm[[i]], 
+                           as.numeric(as.character(lower)),
+                           as.numeric(as.character(rel.ec50)), 
+                           as.numeric(as.character(rel.stderr)), 
+                           as.numeric(as.character(rel.lower)), 
+                           as.numeric(as.character(rel.upper)),
+                           as.numeric(as.character(abs.ec50)),
+                           as.numeric(as.character(abs.stderr)),
+                           as.numeric(as.character(abs.lower)),
+                           as.numeric(as.character(abs.upper)),
+                           as.numeric(as.character(pvalue)),
+                           as.numeric(as.character(lackfitpvalue)),
+                           as.numeric(as.character(compED[1])),
+                           as.numeric(as.character(compED[2])),
+                           as.numeric(as.character(compED[3])),
+                           as.numeric(as.character(compED[4]))))
+EC50.ll4 <- data.frame(rbind(as.data.frame(EC50.ll4), as.data.frame(EC50_i)))
+}
+colnames(EC50.ll4) <- c("Isolate",
+                        "lower",
+                    "RelEC50",
+                    "RelStdErr",
+                    "RelUpper95",
+                    "RelLower95",
+                    "AbsEC50",
+                    "AbsStdErr",
+                    "AbsUpper95",
+                    "AbsLower95",
+                    "Pvalue",
+                    "LackFitPvalue", 
+                    "CompED.est", 
+                    "CompED.stderr", 
+                    "CompED.lower", 
+                    "CompED.upper")
+EC50.ll4$lower <- round(as.numeric(as.character(EC50.ll4$lower)), 3)
+EC50.ll4$RelEC50 <- round(as.numeric(as.character(EC50.ll4$RelEC50)), 3)
+EC50.ll4$RelStdErr <- round(as.numeric(as.character(EC50.ll4$RelStdErr)), 3)
+EC50.ll4$RelUpper95 <- round(as.numeric(as.character(EC50.ll4$RelUpper95)), 3)
+EC50.ll4$RelLower95 <- round(as.numeric(as.character(EC50.ll4$RelLower95)), 3)
+EC50.ll4$AbsEC50 <- round(as.numeric(as.character(EC50.ll4$AbsEC50)), 3)
+EC50.ll4$AbsStdErr <- round(as.numeric(as.character(EC50.ll4$AbsStdErr)), 3)
+EC50.ll4$AbsUpper95 <- round(as.numeric(as.character(EC50.ll4$AbsUpper95)), 3)
+EC50.ll4$AbsLower95 <- round(as.numeric(as.character(EC50.ll4$AbsLower95)), 3)
+EC50.ll4$Pvalue <- round(as.numeric(as.character(EC50.ll4$Pvalue)), 3)
+EC50.ll4$LackFitPvalue <- round(as.numeric(as.character(EC50.ll4$LackFitPvalue)), 3)
+EC50.ll4$CompED.est <- round(as.numeric(as.character(EC50.ll4$CompED.est)), 3)
+EC50.ll4$CompED.stderr <- round(as.numeric(as.character(EC50.ll4$CompED.stderr)), 3)
+EC50.ll4$CompED.upper <- round(as.numeric(as.character(EC50.ll4$CompED.upper)), 3)
+EC50.ll4$CompED.lower <- round(as.numeric(as.character(EC50.ll4$CompED.lower)), 3)
+EC50.ll4$Type <- "Four parameter log-logisitc"
+EC50.ll4$ID <- rep(1:75)
+EC50.ll4 <- EC50.ll4[order(EC50.ll4$ID),] #ordering the table by species
+
+
+```
+
+This loop uses LL.3; lower parameter fixed at 0
+```{r warning=FALSE, tidy = TRUE, echo=TRUE, message=FALSE, results = 'hide'}
+library(drc)
+EC50.ll3 <- NULL
+rel.grow <- NULL
+nm <- levels(growth.mef$is)
+for (i in seq_along(nm)) {
+growth.mef.drc <- drm(100*growth.mef$relgrowth[growth.mef$is == nm[[i]]] ~ 
+                      growth.mef$conc[growth.mef$is == nm[[i]]],  
+                    fct = LL.3(fixed = c(NA,
+                                         NA, 
+                                         NA),  
+                               names = c("Slope",
+                                         "Upper", 
+                                         "EC50")),
+                    na.action = na.omit)
+#outputs the summary of the paramters including the estimate, standard error, t-value, and p-value
+#outputs it into a data frame called summary.mef.fit for "summary of fit"
+summary.mef.fit <- data.frame(summary(growth.mef.drc)[[3]])
+lower <- summary.mef.fit$Estimate[2]
+#outputs the summary of just the EC50 data including the estimate, standard error, upper and lower bounds of the 95% confidence intervals around the EC50
+print(nm[[i]])
+EC50.rel.mef <- data.frame(ED(growth.mef.drc, 
+                             respLev = c(50), 
+                             type = "relative",
+                             interval = "delta"),
+                          level = 0.95)
+EC50.abs.mef <- data.frame(ED(growth.mef.drc, 
+                             respLev = c(50), 
+                             type = "absolute",
+                             interval = "delta"),
+                          level = 0.95)
+print(summary.mef.fit)
+fit <- modelFit(growth.mef.drc)
+lackfitpvalue <- fit[5]$`p value`[2]
+pvalue <- summary.mef.fit[4,4][[1]]
+print(fit)
+
+#relative EC50
+rel.ec50 <- EC50.rel.mef[1][[1]]
+rel.stderr <- EC50.rel.mef[2][[1]]
+rel.lower <- EC50.rel.mef[3][[1]]
+rel.upper <- EC50.rel.mef[4][[1]]
+
+#absolute EC50
+abs.ec50 <- EC50.abs.mef[1][[1]]
+abs.stderr <- EC50.abs.mef[2][[1]]
+abs.lower <- EC50.abs.mef[3][[1]]
+abs.upper <- EC50.abs.mef[4][[1]]
+
+compED <- comped(c(rel.ec50, abs.ec50), se = c(rel.stderr, abs.stderr), interval = TRUE, 
+       operator = "-", level = 0.95)
+
+EC50_i <- data.frame(cbind(nm[[i]], 
+                           as.numeric(as.character(lower)),
+                           as.numeric(as.character(rel.ec50)), 
+                           as.numeric(as.character(rel.stderr)), 
+                           as.numeric(as.character(rel.lower)), 
+                           as.numeric(as.character(rel.upper)),
+                           as.numeric(as.character(abs.ec50)),
+                           as.numeric(as.character(abs.stderr)),
+                           as.numeric(as.character(abs.lower)),
+                           as.numeric(as.character(abs.upper)),
+                           as.numeric(as.character(pvalue)),
+                           as.numeric(as.character(lackfitpvalue)),
+                           as.numeric(as.character(compED[1])),
+                           as.numeric(as.character(compED[2])),
+                           as.numeric(as.character(compED[3])),
+                           as.numeric(as.character(compED[4]))))
+EC50.ll3 <- data.frame(rbind(as.data.frame(EC50.ll3), as.data.frame(EC50_i)))
+}
+colnames(EC50.ll3) <- c("Isolate",
+                        "lower",
+                    "RelEC50",
+                    "RelStdErr",
+                    "RelUpper95",
+                    "RelLower95",
+                    "AbsEC50",
+                    "AbsStdErr",
+                    "AbsUpper95",
+                    "AbsLower95",
+                    "Pvalue",
+                    "LackFitPvalue",
+                    "CompED.est", 
+                    "CompED.stderr", 
+                    "CompED.lower", 
+                    "CompED.upper")
+EC50.ll4$lower <- round(as.numeric(as.character(EC50.ll4$lower)), 3)
+EC50.ll3$RelEC50 <- round(as.numeric(as.character(EC50.ll3$RelEC50)), 3)
+EC50.ll3$RelStdErr <- round(as.numeric(as.character(EC50.ll3$RelStdErr)), 3)
+EC50.ll3$RelUpper95 <- round(as.numeric(as.character(EC50.ll3$RelUpper95)), 3)
+EC50.ll3$RelLower95 <- round(as.numeric(as.character(EC50.ll3$RelLower95)), 3)
+EC50.ll3$AbsEC50 <- round(as.numeric(as.character(EC50.ll3$AbsEC50)), 3)
+EC50.ll3$AbsStdErr <- round(as.numeric(as.character(EC50.ll3$AbsStdErr)), 3)
+EC50.ll3$AbsUpper95 <- round(as.numeric(as.character(EC50.ll3$AbsUpper95)), 3)
+EC50.ll3$AbsLower95 <- round(as.numeric(as.character(EC50.ll3$AbsLower95)), 3)
+EC50.ll3$Pvalue <- round(as.numeric(as.character(EC50.ll3$Pvalue)), 3)
+EC50.ll3$LackFitPvalue <- round(as.numeric(as.character(EC50.ll3$LackFitPvalue)), 3)
+EC50.ll3$CompED.est <- round(as.numeric(as.character(EC50.ll3$CompED.est)), 3)
+EC50.ll3$CompED.stderr <- round(as.numeric(as.character(EC50.ll3$CompED.stderr)), 3)
+EC50.ll3$CompED.upper <- round(as.numeric(as.character(EC50.ll3$CompED.upper)), 3)
+EC50.ll3$CompED.lower <- round(as.numeric(as.character(EC50.ll3$CompED.lower)), 3)
+EC50.ll3$Type <- "Three parameter log-logsitic"
+EC50.ll3$ID <- rep(1:75)
+EC50.ll3 <- EC50.ll3[order(EC50.ll3$ID),] #ordering the table by species
+
+```
+
+This loop uses the LL.2; lower parameter fixed at 0, and upper parameter fixed at 100
+```{r warning=FALSE, tidy = TRUE, echo=TRUE, message=FALSE, results = 'hide'}
+library(drc)
+EC50.ll2 <- NULL
+rel.grow <- NULL
+nm <- levels(growth.mef$is)
+for (i in seq_along(nm)) {
+growth.mef.drc <- drm(100*growth.mef$relgrowth[growth.mef$is == nm[[i]]] ~ 
+                      growth.mef$conc[growth.mef$is == nm[[i]]],  
+                    fct = LL.2(upper = 100,
+                               fixed = c(NA,
+                                         NA),  
+                               names = c("Slope",
+                                         "EC50")),
+                    na.action = na.omit)
+#outputs the summary of the paramters including the estimate, standard error, t-value, and p-value
+#outputs it into a data frame called summary.mef.fit for "summary of fit"
+summary.mef.fit <- data.frame(summary(growth.mef.drc)[[3]])
+lower <- summary.mef.fit$Estimate[2]
+#outputs the summary of just the EC50 data including the estimate, standard error, upper and lower bounds of the 95% confidence intervals around the EC50
+print(nm[[i]])
+EC50.rel.mef <- data.frame(ED(growth.mef.drc, 
+                             respLev = c(50), 
+                             type = "relative",
+                             interval = "delta"),
+                          level = 0.95)
+EC50.abs.mef <- data.frame(ED(growth.mef.drc, 
+                             respLev = c(50), 
+                             type = "absolute",
+                             interval = "delta"),
+                          level = 0.95)
+print(summary.mef.fit)
+fit <- modelFit(growth.mef.drc)
+lackfitpvalue <- fit[5]$`p value`[2]
+pvalue <- summary.mef.fit[4,4][[1]]
+print(fit)
+
+#relative EC50
+rel.ec50 <- EC50.rel.mef[1][[1]]
+rel.stderr <- EC50.rel.mef[2][[1]]
+rel.lower <- EC50.rel.mef[3][[1]]
+rel.upper <- EC50.rel.mef[4][[1]]
+
+#absolute EC50
+abs.ec50 <- EC50.abs.mef[1][[1]]
+abs.stderr <- EC50.abs.mef[2][[1]]
+abs.lower <- EC50.abs.mef[3][[1]]
+abs.upper <- EC50.abs.mef[4][[1]]
+
+compED <- comped(c(rel.ec50, abs.ec50), se = c(rel.stderr, abs.stderr), interval = TRUE, 
+       operator = "-", level = 0.95)
+
+EC50_i <- data.frame(cbind(nm[[i]], 
+                           as.numeric(as.character(lower)),
+                           as.numeric(as.character(rel.ec50)), 
+                           as.numeric(as.character(rel.stderr)), 
+                           as.numeric(as.character(rel.lower)), 
+                           as.numeric(as.character(rel.upper)),
+                           as.numeric(as.character(abs.ec50)),
+                           as.numeric(as.character(abs.stderr)),
+                           as.numeric(as.character(abs.lower)),
+                           as.numeric(as.character(abs.upper)),
+                           as.numeric(as.character(pvalue)),
+                           as.numeric(as.character(lackfitpvalue)),
+                           as.numeric(as.character(compED[1])),
+                           as.numeric(as.character(compED[2])),
+                           as.numeric(as.character(compED[3])),
+                           as.numeric(as.character(compED[4]))))
+EC50.ll2 <- data.frame(rbind(as.data.frame(EC50.ll2), as.data.frame(EC50_i)))
+}
+colnames(EC50.ll2) <- c("Isolate",
+                        "lower",
+                    "RelEC50",
+                    "RelStdErr",
+                    "RelUpper95",
+                    "RelLower95",
+                    "AbsEC50",
+                    "AbsStdErr",
+                    "AbsUpper95",
+                    "AbsLower95",
+                    "Pvalue",
+                    "LackFitPvalue",
+                    "CompED.est", 
+                    "CompED.stderr", 
+                    "CompED.lower", 
+                    "CompED.upper")
+
+EC50.ll4$lower <- round(as.numeric(as.character(EC50.ll4$lower)), 3)
+EC50.ll2$RelEC50 <- round(as.numeric(as.character(EC50.ll2$RelEC50)), 3)
+EC50.ll2$RelStdErr <- round(as.numeric(as.character(EC50.ll2$RelStdErr)), 3)
+EC50.ll2$RelUpper95 <- round(as.numeric(as.character(EC50.ll2$RelUpper95)), 3)
+EC50.ll2$RelLower95 <- round(as.numeric(as.character(EC50.ll2$RelLower95)), 3)
+EC50.ll2$AbsEC50 <- round(as.numeric(as.character(EC50.ll2$AbsEC50)), 3)
+EC50.ll2$AbsStdErr <- round(as.numeric(as.character(EC50.ll2$AbsStdErr)), 3)
+EC50.ll2$AbsUpper95 <- round(as.numeric(as.character(EC50.ll2$AbsUpper95)), 3)
+EC50.ll2$AbsLower95 <- round(as.numeric(as.character(EC50.ll2$AbsLower95)), 3)
+EC50.ll2$Pvalue <- round(as.numeric(as.character(EC50.ll2$Pvalue)), 3)
+EC50.ll2$LackFitPvalue <- round(as.numeric(as.character(EC50.ll2$LackFitPvalue)), 3)
+EC50.ll2$CompED.est <- round(as.numeric(as.character(EC50.ll2$CompED.est)), 3)
+EC50.ll2$CompED.stderr <- round(as.numeric(as.character(EC50.ll2$CompED.stderr)), 3)
+EC50.ll2$CompED.upper <- round(as.numeric(as.character(EC50.ll2$CompED.upper)), 3)
+EC50.ll2$CompED.lower <- round(as.numeric(as.character(EC50.ll2$CompED.lower)), 3)
+EC50.ll2$Type <- "Two parameter log-logisitc"
+EC50.ll2$ID <- rep(1:75)
+EC50.ll2 <- EC50.ll2[order(EC50.ll2$ID),] #ordering the table by species
+
+```
+
+Combining the three dataframes into one for a facet wrap
+```{r}
+EC50 <- data.frame(rbind(EC50.ll4, EC50.ll3, EC50.ll2))
+```
+
+Lets plot everything
+
+```{r, warning=FALSE}
+library(extrafont)
+font_import()
+
+EC50$Sig0 <- ifelse(EC50$CompED.lower < 0 & EC50$CompED.upper < 0, TRUE, FALSE)
+
+EC50 <- EC50[!EC50$Isolate == "ILSO_6-34c",]
+EC50 <- EC50[!EC50$ID == 11,]
+EC50 <- EC50[!EC50$ID == 68,]
+EC50 <- EC50[!EC50$ID == 50,]
+EC50 <- EC50[!EC50$ID == 44,]
+
+library(ggplot2)
+ggplot(data = EC50, aes(x = CompED.est, y = reorder(ID, CompED.est), color = Sig0)) + 
+  geom_point() + 
+  scale_colour_manual(values = c("black", "grey")) +
+  geom_errorbarh(aes(xmax = CompED.upper, xmin = CompED.lower)) +
+  geom_vline(xintercept = 0, linetype = "longdash") +
+  #scale_x_continuous(limits = c(-2.5, 2.5)) +
+  facet_wrap(~ Type, nrow = 1, scales = "free_x") +
+  xlab(expression(bold("Relative EC"[50] ~ "- Absolute EC"[50]))) +
+  ylab("Isolate") +
+  theme_bw() +
+  theme(axis.text.y = element_text(family = "Times New Roman", size = 12, face = "bold"),
+        axis.text.x = element_text(family = "Times New Roman", size = 15, face = "bold"),
+        axis.title.x = element_text(family = "Times New Roman",size = 20, face = "bold"),
+        axis.title.y = element_text(family = "Times New Roman",size = 20, face = "bold"),
+        strip.text.x = element_text(family = "Times New Roman",size = 15, face = "bold"),
+        legend.position="none") 
+```
+
+
+```{r}
+library(knitr)
+kable(EC50, digits = 3, row.names = FALSE)
+```
+
+```{r}
+library(extrafont)
+font_import()
+
+EC50.ll4$Sig0 <- ifelse(EC50.ll4$CompED.lower < 0 & EC50.ll4$CompED.upper < 0, TRUE, FALSE)
+
+EC50.ll4 <- EC50.ll4[!EC50.ll4$Isolate == "ILSO_6-34c",]
+EC50.ll4 <- EC50.ll4[!EC50.ll4$ID == 11,]
+EC50.ll4 <- EC50.ll4[!EC50.ll4$ID == 68,]
+EC50.ll4 <- EC50.ll4[!EC50.ll4$ID == 50,]
+EC50.ll4 <- EC50.ll4[!EC50.ll4$ID == 44,]
+
+EC50.ll4[EC50.ll4$ID == 43,]
+
+library(ggplot2)
+ggplot(data = EC50.ll4, aes(x = CompED.est, y = reorder(ID, CompED.est), shape = Sig0, colour = lower)) + 
+  geom_point(fill = lower) + 
+  #scale_colour_gradient2(low = "red", high = "blue") +
+  geom_errorbarh(aes(xmax = CompED.upper, xmin = CompED.lower)) +
+  geom_vline(xintercept = 0, linetype = "longdash") +
+  #scale_x_continuous(limits = c(-2.5, 2.5)) +
+  #facet_wrap(~ Type, nrow = 1, scales = "free_x") +
+  xlab(expression(bold("Relative EC"[50] ~ "- Absolute EC"[50]))) +
+  ylab("Isolate") +
+  theme_bw() +
+  theme(axis.text.y = element_text(family = "Times New Roman", size = 8, face = "bold"),
+        axis.text.x = element_text(family = "Times New Roman", size = 15, face = "bold"),
+        axis.title.x = element_text(family = "Times New Roman",size = 20, face = "bold"),
+        axis.title.y = element_text(family = "Times New Roman",size = 20, face = "bold"),
+        strip.text.x = element_text(family = "Times New Roman",size = 15, face = "bold")) 
+```
+
+
+
+##### From these results above lets look at a the special case from the isolate C-MNSO_6-4
+```{r}
+#specify a LL.4 model, more complex model, the alternative model
+growth.mef.LL4 <- drm(100*growth.mef$relgrowth[growth.mef$is == "C-MNSO_6-4"] ~ 
+                        growth.mef$conc[growth.mef$is == "C-MNSO_6-4"],
+                      fct = LL.4(fixed = c(NA,NA,NA,NA),
+                                 names = c("Slope","Lower","Upper","EC50")),
+                      na.action = na.omit)
+#specify a LL.3 model, a reduction in the model, the null model
+growth.mef.LL3 <- drm(100*growth.mef$relgrowth[growth.mef$is == "C-MNSO_6-4"] ~ 
+                        growth.mef$conc[growth.mef$is == "C-MNSO_6-4"],
+                      fct = LL.3(fixed = c(NA,NA,NA),
+                                 names = c("Slope","Upper","EC50")),
+                      na.action = na.omit)
+```
+Absolute EC50
+```{r}
+# LL.4 absolute EC50
+ec50.LL4.abs <- ED(growth.mef.LL4, 50, type = "absolute")
+# LL.3 absolute EC50
+ec50.LL3.abs <- ED(growth.mef.LL3, 50, type = "absolute")
+```
+Notice how the absolute EC50 for the LL4 is undefined, but the LL3 is defined. This is because in the LL3 we are fixing the lower parameter of the curve at 0 manually. Therefore there is an absolute EC50, because the curve will always cross 50% in an LL3 model, but not nessesarily in an LL4. 
+
+Relative EC50
+```{r}
+# LL.4 relative EC50
+ec50.LL4.rel <- ED(growth.mef.LL4, 50, type = "relative")
+# LL.3 relative EC50
+ec50.LL3.abs <- ED(growth.mef.LL3, 50, type = "absolute")
+```
+However, the relative EC50 is defined for both models, but it is different. This is because the LL4 model relative EC50 is halfway between the lower and upper bound. Same with the LL3 model, but again, we are fixing the lower bound at 0. 
+
+Summary of model parameters
+```{r}
+# Tells us if the parameters from LL.4 are significantly different than 0
+summary(growth.mef.LL4)
+# Tells us if the parameters from LL.3 are significantly different than 0
+summary(growth.mef.LL3)
+```
+All model parameters are significantly different from zero, this is a good thing for model fitting. 
+
+Lack of fit tests for both models
+```{r}
+# LL.4 Lack of fit test, if significant; means model is not a good fit to data
+modelFit(growth.mef.LL4)
+# LL.3 Lack of fit test, if significant; means model is not a good fit to data
+modelFit(growth.mef.LL3)
+```
+There is no lack of fit for the LL4 model, but there is an indication of lack of fit for the LL3 model. This is not supprizing since there are not many points too describe the bottom of the curve. 
+
+AIC
+```{r}
+# LL.4 Akiaki information criterion
+AIC(growth.mef.LL4)
+# LL.3 Akiaki information criterion
+AIC(growth.mef.LL3)
+```
+The AIC values support that the LL4 is the better model. 
+
+Perform a LRT, null model = LL3, alternative model = LL4
+```{r}
+anova(growth.mef.LL4, growth.mef.LL3, details = FALSE)
+```
+The lack of fit test is difinitive to say that we cannot reduce the model to an LL3 and we should be using an LL4 model. 
+
+This is puzzeling though because we know that the absolute EC50 is undefined. So, even though the model choice is clearly an LL4 model, we cannot use the relative EC50 since the lower bound is above 50% relative growth. Instead for this isolate the more accurate and practical estimation of the EC50 is the absolute EC50. This problem could obviously be fixed by providing more points at higher concentrations of the fungicide that would eventually totally inhibit the growth to 0. This would be ideal, but in a practical sense, especially when screening for resistant isolates, it may not be advisable to add more concentrations.  
+
+Regardless lets plot these isolates and see what they look like. 
+
+for isolate 2, C-mnso2_6-4
+```{r fig.height==10, fig.width=10, eval = TRUE, echo = FALSE, warning=FALSE}
+
+  library(drc)
+  library(plotrix)
+growth.mef.single <- drm(100*growth.mef$relgrowth[growth.mef$is == "C-MNSO_6-4"] ~ growth.mef$conc[growth.mef$is == "C-MNSO_6-4"],
+                    fct = LL.3(fixed = c(NA,
+                                         NA, 
+                                         NA),  
+                               names = c("Slope",
+                                         "Upper", 
+                                         "EC50")),
+                    na.action = na.omit)
+growth.mef.single.LL4 <- drm(100*growth.mef$relgrowth[growth.mef$is == "C-MNSO_6-4"] ~ growth.mef$conc[growth.mef$is == "C-MNSO_6-4"],
+                    fct = LL.4(fixed = c(NA,
+                                         NA,
+                                         NA, 
+                                         NA),  
+                               names = c("Slope",
+                                         "Lower",
+                                         "Upper", 
+                                         "EC50")),
+                    na.action = na.omit)
+ec50.abs.ll4 <- ED(growth.mef.single.LL4, 50, type = "absolute")
+ec50.rel.ll4 <- ED(growth.mef.single.LL4, 50, type = "relative")
+ec50.abs.ll3 <- ED(growth.mef.single, 50, type = "absolute")
+ec50.rel.ll3 <- ED(growth.mef.single, 50, type = "relative")
+print(modelFit(growth.mef.single.LL4))
+print(modelFit(growth.mef.single))
+print("RESULTS of LL.4")
+print(summary(growth.mef.single.LL4))
+print("AIC")
+print(AIC(growth.mef.single.LL4))
+print("LogLiklihood")
+print(logLik(growth.mef.single.LL4))
+print("RESULTS of LL.3")
+print(summary(growth.mef.single))
+print("AIC")
+print(AIC(growth.mef.single))
+print("LogLiklihood")
+print(logLik(growth.mef.single))
+
+print("ANOVA between models")
+print(anova(growth.mef.single.LL4, growth.mef.single, details = FALSE))# reduction to 'LL.3' not possible (highly significant)
+ec50 <- data.frame(c(ec50.abs.ll4[[1]], ec50.rel.ll4[[1]], ec50.rel.ll3[[1]], ec50.abs.ll3[[1]]),
+                   c(ec50.abs.ll4[[2]], ec50.rel.ll4[[2]], ec50.rel.ll3[[2]], ec50.abs.ll3[[2]]),
+                   c("absoluteLL4", "relativeLL4", "absoluteLL3", "relativeLL3"))
+colnames(ec50) <- c("EC50", "stderr", "type")
+
+
+
+dev.off()
+plot(growth.mef.single.LL4, 
+     xlab = expression(bold("Mefenoxam concentration (μg ml"^-1~")")),
+     ylab = expression(bold("Percent growth, relative to control")),
+     lwd = 2, type = "all", pch = 19, xaxt = "n", yaxt = "n", legend = F, broken = T, ylim = c(0, 100), xlim = c(0, 10), 
+     xt = c(0, 0.01, 0.05, 0.1, 0.5, 1), normal = F, cex = 0.75)
+plot(growth.mef.single, add = T, lty = 2, type = "n", lwd = 3, xaxt = "n", yaxt = "n", legend = F)
+#points(ec50$EC50[1], 50, pch = 15, cex = 1.5)
+#points(ec50$EC50[2], predict(growth.mef.single.LL4, data.frame(dose=ec50$EC50[2]), se.fit = F), pch = 17, cex = 1, col = "grey")
+#points(ec50$EC50[3], 50, pch = 19, cex = 1)
+#points(ec50$EC50[4], predict(growth.mef.single, data.frame(dose=ec50$EC50[2]), se.fit = F), pch = 18, cex = 1, col = "grey")
+```
+
+repeated code as above, but with c-mnso2_2-10
+```{r}
+  library(drc)
+  library(plotrix)
+growth.mef.single <- drm(100*growth.mef$relgrowth[growth.mef$is == "C-MNSO2_2-10"] ~ growth.mef$conc[growth.mef$is == "C-MNSO2_2-10"],
+                    fct = LL.3(fixed = c(NA,
+                                         NA, 
+                                         NA),  
+                               names = c("Slope",
+                                         "Upper", 
+                                         "EC50")),
+                    na.action = na.omit)
+growth.mef.single.LL4 <- drm(100*growth.mef$relgrowth[growth.mef$is == "C-MNSO2_2-10"] ~ growth.mef$conc[growth.mef$is == "C-MNSO2_2-10"],
+                    fct = LL.4(fixed = c(NA,
+                                         NA,
+                                         NA, 
+                                         NA),  
+                               names = c("Slope",
+                                         "Lower",
+                                         "Upper", 
+                                         "EC50")),
+                    na.action = na.omit)
+ec50.abs.ll4 <- ED(growth.mef.single.LL4, 50, type = "absolute")
+ec50.rel.ll4 <- ED(growth.mef.single.LL4, 50, type = "relative")
+ec50.abs.ll3 <- ED(growth.mef.single, 50, type = "absolute")
+ec50.rel.ll3 <- ED(growth.mef.single, 50, type = "relative")
+print(modelFit(growth.mef.single.LL4))
+print(modelFit(growth.mef.single))
+print("RESULTS of LL.4")
+print(summary(growth.mef.single.LL4))
+print("AIC")
+print(AIC(growth.mef.single.LL4))
+print("LogLiklihood")
+print(logLik(growth.mef.single.LL4))
+print("RESULTS of LL.3")
+print(summary(growth.mef.single))
+print("AIC")
+print(AIC(growth.mef.single))
+print("LogLiklihood")
+print(logLik(growth.mef.single))
+
+print("ANOVA between models")
+print(anova(growth.mef.single.LL4, growth.mef.single, details = FALSE))# reduction to 'LL.3' not possible (highly significant)
+ec50 <- data.frame(c(ec50.abs.ll4[[1]], ec50.rel.ll4[[1]], ec50.rel.ll3[[1]], ec50.abs.ll3[[1]]),
+                   c(ec50.abs.ll4[[2]], ec50.rel.ll4[[2]], ec50.rel.ll3[[2]], ec50.abs.ll3[[2]]),
+                   c("absoluteLL4", "relativeLL4", "absoluteLL3", "relativeLL3"))
+colnames(ec50) <- c("EC50", "stderr", "type")
+
+
+
+dev.off()
+plot(growth.mef.single.LL4, 
+     xlab = expression(bold("Mefenoxam concentration (μg ml"^-1~")")),
+     ylab = expression(bold("Percent growth, relative to control")),
+     lwd = 2, type = "all", pch = 19, xaxt = "n", yaxt = "n", legend = F, broken = T, ylim = c(0, 100), xlim = c(0, 10), 
+     xt = c(0, 0.01, 0.05, 0.1, 0.5, 1), normal = F, cex = 0.75)
+plot(growth.mef.single, add = T, lty = 2, type = "n", lwd = 3, xaxt = "n", yaxt = "n", legend = F)
+#points(ec50$EC50[1], 50, pch = 15, cex = 1.5)
+#points(ec50$EC50[2], predict(growth.mef.single.LL4, data.frame(dose=ec50$EC50[2]), se.fit = F), pch = 17, cex = 1, col = "grey")
+#points(ec50$EC50[3], 50, pch = 19, cex = 1)
+#points(ec50$EC50[4], predict(growth.mef.single, data.frame(dose=ec50$EC50[2]), se.fit = F), pch = 18, cex = 1, col = "grey")
+
+```
+
+
+##Normalized vs. non-normalized data 
+
+However we have not calculated the non normalized EC50 yet. All we did was change the drm function to meancolony diameter.
+```{r}
+library(drc)
+EC50.ll4 <- NULL
+rel.grow <- NULL
+nm <- levels(growth.mef$is)
+for (i in seq_along(nm)) {
+ll4 <- drm(growth.mef$meancoldiam[growth.mef$is == nm[[i]]] ~ 
+                      growth.mef$conc[growth.mef$is == nm[[i]]],  
+                    fct = LL.4(fixed = c(NA, 
+                                         NA, 
+                                         NA, 
+                                         NA),  
+                               names = c("Slope", 
+                                         "Lower", 
+                                         "Upper", 
+                                         "EC50")),
+                    na.action = na.omit)
+ll4norm <- drm(100*growth.mef$relgrowth[growth.mef$is == nm[[i]]] ~ 
+                      growth.mef$conc[growth.mef$is == nm[[i]]],  
+                    fct = LL.4(fixed = c(NA, 
+                                         NA, 
+                                         NA, 
+                                         NA),  
+                               names = c("Slope", 
+                                         "Lower", 
+                                         "Upper", 
+                                         "EC50")),
+                    na.action = na.omit)
+EC50.rel <- data.frame(ED(ll4, 
+                             respLev = c(50), 
+                             type = "relative",
+                             interval = "delta"),
+                          level = 0.95)
+EC50.rel.norm <- data.frame(ED(ll4norm, 
+                             respLev = c(50), 
+                             type = "relative",
+                             interval = "delta"),
+                          level = 0.95)
+#Not normalized relative EC50
+rel.ec50 <- EC50.rel[1][[1]]
+rel.stderr <- EC50.rel[2][[1]]
+#Normalized EC50
+rel.ec50.norm <- EC50.rel.norm[1][[1]]
+rel.stderr.norm <- EC50.rel.norm[2][[1]]
+
+compED <- comped(c(rel.ec50, rel.ec50.norm), se = c(rel.stderr, rel.stderr.norm), interval = TRUE, 
+       operator = "-", level = 0.95)
+
+EC50_i <- data.frame(cbind.data.frame(nm[[i]], 
+                           as.numeric(as.character(rel.ec50)), 
+                           as.numeric(as.character(rel.stderr)), 
+                           as.numeric(as.character(rel.ec50.norm)),
+                           as.numeric(as.character(rel.stderr.norm)),
+                           as.numeric(as.character(compED[1])),
+                           as.numeric(as.character(compED[2])),
+                           as.numeric(as.character(compED[3])),
+                           as.numeric(as.character(compED[4]))))
+EC50.ll4 <- data.frame(rbind.data.frame(as.data.frame(EC50.ll4), as.data.frame(EC50_i)))
+}
+colnames(EC50.ll4) <- c("Isolate",
+                    "RelEC50",
+                    "RelStdErr",
+                    "RelEC50.norm",
+                    "RelStdErr.norm",
+                    "CompED.est", 
+                    "CompED.stderr", 
+                    "CompED.lower", 
+                    "CompED.upper")
+EC50.ll4$Model <- "Four parameter log-logisitic"
+EC50.ll4$ID <- rep(1:75)
+```
+
+Do the same for an LL.3 model
+```{r}
+library(drc)
+EC50.ll3 <- NULL
+rel.grow <- NULL
+nm <- levels(growth.mef$is)
+for (i in seq_along(nm)) {
+ll3 <- drm(growth.mef$meancoldiam[growth.mef$is == nm[[i]]] ~ 
+                      growth.mef$conc[growth.mef$is == nm[[i]]],  
+                    fct = LL.3(fixed = c(NA, 
+                                         NA, 
+                                         NA),  
+                               names = c("Slope", 
+                                         "Upper", 
+                                         "EC50")),
+                    na.action = na.omit)
+ll3norm <- drm(100*growth.mef$relgrowth[growth.mef$is == nm[[i]]] ~ 
+                      growth.mef$conc[growth.mef$is == nm[[i]]],  
+                    fct = LL.3(fixed = c(NA, 
+                                         NA, 
+                                         NA),  
+                               names = c("Slope", 
+                                         "Upper", 
+                                         "EC50")),
+                    na.action = na.omit)
+EC50.rel <- data.frame(ED(ll3, 
+                             respLev = c(50), 
+                             type = "relative",
+                             interval = "delta"),
+                          level = 0.95)
+EC50.rel.norm <- data.frame(ED(ll3norm, 
+                             respLev = c(50), 
+                             type = "relative",
+                             interval = "delta"),
+                          level = 0.95)
+#Not normalized relative EC50
+rel.ec50 <- EC50.rel[1][[1]]
+rel.stderr <- EC50.rel[2][[1]]
+#Normalized EC50
+rel.ec50.norm <- EC50.rel.norm[1][[1]]
+rel.stderr.norm <- EC50.rel.norm[2][[1]]
+
+compED <- comped(c(rel.ec50, rel.ec50.norm), se = c(rel.stderr, rel.stderr.norm), interval = TRUE, 
+       operator = "-", level = 0.95)
+
+EC50_i <- data.frame(cbind.data.frame(nm[[i]], 
+                           as.numeric(as.character(rel.ec50)), 
+                           as.numeric(as.character(rel.stderr)), 
+                           as.numeric(as.character(rel.ec50.norm)),
+                           as.numeric(as.character(rel.stderr.norm)),
+                           as.numeric(as.character(compED[1])),
+                           as.numeric(as.character(compED[2])),
+                           as.numeric(as.character(compED[3])),
+                           as.numeric(as.character(compED[4]))))
+EC50.ll3 <- data.frame(rbind.data.frame(as.data.frame(EC50.ll3), as.data.frame(EC50_i)))
+}
+colnames(EC50.ll3) <- c("Isolate",
+                    "RelEC50",
+                    "RelStdErr",
+                    "RelEC50.norm",
+                    "RelStdErr.norm",
+                    "CompED.est", 
+                    "CompED.stderr", 
+                    "CompED.lower", 
+                    "CompED.upper")
+EC50.ll3$Model <- "Three parameter log-logistic"
+EC50.ll3$ID <- rep(1:75)
+```
+
+```{r}
+EC50.normcomp <- data.frame(rbind.data.frame(EC50.ll3, EC50.ll4))
+```
+
+```{r}
+EC50.normcomp$Sig0 <- ifelse(EC50.normcomp$CompED.lower < 0 & EC50.normcomp$CompED.upper < 0, TRUE, FALSE)
+
+EC50.normcomp <- EC50.normcomp[!EC50.normcomp$Isolate == "ILSO_6-34c",]
+EC50.normcomp <- EC50.normcomp[!EC50.normcomp$ID == 11,]
+EC50.normcomp <- EC50.normcomp[!EC50.normcomp$ID == 68,]
+EC50.normcomp <- EC50.normcomp[!EC50.normcomp$ID == 50,]
+EC50.normcomp <- EC50.normcomp[!EC50.normcomp$ID == 44,]
+
+library(ggplot2)
+ggplot(data = EC50.normcomp, aes(x = CompED.est, y = reorder(ID, CompED.est), color = Sig0)) + 
+  geom_point() + 
+  scale_colour_manual(values = c("black", "grey")) +
+  geom_errorbarh(aes(xmax = CompED.upper, xmin = CompED.lower)) +
+  geom_vline(xintercept = 0, linetype = "longdash") +
+  scale_x_continuous(limits = c(-1.5, 1.5)) +
+  facet_wrap(~ Model, nrow = 1, scales = "free_x") +
+  xlab(expression(bold("Non-normalized EC"[50] ~ "- Normalized EC"[50]))) +
+  ylab("Isolate") +
+  theme_bw() +
+  theme(axis.text.y = element_text(family = "Times New Roman", size = 8, face = "bold"),
+        axis.text.x = element_text(family = "Times New Roman", size = 15, face = "bold"),
+        axis.title.x = element_text(family = "Times New Roman",size = 20, face = "bold"),
+        axis.title.y = element_text(family = "Times New Roman",size = 20, face = "bold"),
+        strip.text.x = element_text(family = "Times New Roman",size = 15, face = "bold")) 
+```
+
+
+##Fluopyram and hormetic effects 
+
+```{r}
+# load packages
+library("drc")
+library("ggplot2")
+library("dplyr")
+library("stringr")
+```
+
+```{r}
+# generate Rdata file 
+hormeticData <- read.csv("hormeticData.csv")
+#unique(hormeticData$setStrain)
+```
+
+```{r}
+# function to calculate EC50
+calEC50 <- function(hData, fct){
+  # subset data by strain set
+  subData.m1 <- drm(RelArea ~ Conc, 
+                    format(setStrain, trim=TRUE),
+                    fct=fct,
+                    data=hData)
+  ED_table <- ED(subData.m1,c(50), interval="delta", bound = FALSE)
+  return(ED_table)
+}
+```
+```{r}
+# calculate EC50 using BC.4
+EC50RawHorm.BC4 <- data.frame(straiName = character(0), EC50 = numeric(0), 
+                          StdErr = numeric(0), Lower = numeric(0), 
+                          Upper = numeric(0))
+for (strainSet in levels(factor(hormeticData$setStrain)) ){
+  subData.4 <- filter(hormeticData, setStrain == strainSet)
+  tableEC50 <- calEC50(subData.4, BC.4())
+  EC50RawHorm.BC4 <- rbind(EC50RawHorm.BC4, tableEC50)
+}
+EC50RawHorm.BC4$method <- "BC.4"
+
+```
+
+```{r}
+# calculate EC50 using LL.4
+EC50RawHorm.LL4 <- data.frame(straiName = character(0), EC50 = numeric(0), 
+                              StdErr = numeric(0), Lower = numeric(0), 
+                              Upper = numeric(0))
+for (strainSet in levels(factor(hormeticData$setStrain)) ){
+  subData.4 <- filter(hormeticData, setStrain == strainSet)
+  tableEC50 <- calEC50(subData.4, LL.4())
+  EC50RawHorm.LL4 <- rbind(EC50RawHorm.LL4, tableEC50)
+}
+EC50RawHorm.LL4$method <- "LL.4"
+```
+
+```{r}
+# calculate EC50 using W2.4
+EC50RawHorm.W24 <- data.frame(straiName = character(0), EC50 = numeric(0), 
+                              StdErr = numeric(0), Lower = numeric(0), 
+                              Upper = numeric(0))
+for (strainSet in levels(factor(hormeticData$setStrain)) ){
+  subData.4 <- filter(hormeticData, setStrain == strainSet)
+  tableEC50 <- calEC50(subData.4, W2.4())
+  EC50RawHorm.W24 <- rbind(EC50RawHorm.W24, tableEC50)
+}
+EC50RawHorm.W24$method <- "W2.4"
+```
+
+```{r}
+# calculate EC50 using W2.4
+EC50RawHorm.CRS4 <- data.frame(straiName = character(0), EC50 = numeric(0), 
+                              StdErr = numeric(0), Lower = numeric(0), 
+                              Upper = numeric(0))
+for (strainSet in levels(factor(hormeticData$setStrain)) ){
+  subData.4 <- filter(hormeticData, setStrain == strainSet)
+  tableEC50 <- calEC50(subData.4, CRS.4c())
+  EC50RawHorm.CRS4 <- rbind(EC50RawHorm.CRS4, tableEC50)
+}
+EC50RawHorm.CRS4$method <- "CRS.4"
+```
+
+```{r}
+# merge all data into full table
+# summarise all data together
+allHormData <- rbind(EC50RawHorm.BC4, EC50RawHorm.LL4, EC50RawHorm.W24,
+                     EC50RawHorm.CRS4)
+allHormData <- allHormData %>% rename(EC50 = Estimate)
+
+summary(allHormData$EC50[allHormData$method == "BC.4"])
+summary(allHormData$EC50[allHormData$method == "CRS.4"])
+summary(allHormData$EC50[allHormData$method == "LL.4"])
+summary(allHormData$EC50[allHormData$method == "W2.4"])
+
+# plot all the histograms all together
+# for easy of data visulization, the EC50 values above 30 ppm
+# were remove for the models BC4 and CRS4
+# generate histogram for each model
+
+library(agricolae)
+AOV <- aov(allHormData$EC50 ~ allHormData$method)
+summary(AOV)
+tukey <- HSD.test(AOV,"allHormData$method", group=TRUE, console = FALSE)
+tukey.groups <- data.frame(tukey$groups)
+```
+
+```{r}
+library(extrafont)
+font_import()
+
+ggplot(allHormData, aes(x=EC50)) + 
+  geom_histogram(aes(y=(..count..)), color="black", fill="white",
+                 binwidth = 0.5, size=1) +
+  coord_cartesian(xlim = c(0, 20)) +
+  scale_y_continuous(breaks=seq(0,10,1), limits = c(0,10)) +
+  theme_bw() +
+  labs(y="Frequency", x=expression(bold('Fluopyram EC'[50]*' (μg ml'^-1*')')) )+
+  facet_wrap(~method) +
+  theme(axis.text.y = element_text(family = "Times New Roman", size = 15, face = "bold"),
+        axis.text.x = element_text(family = "Times New Roman", size = 15, face = "bold"),
+        axis.title.x = element_text(family = "Times New Roman",size = 20, face = "bold"),
+        axis.title.y = element_text(family = "Times New Roman",size = 20, face = "bold"),
+        strip.text.x = element_text(family = "Times New Roman",size = 15, face = "bold"))
+```
+
+```{r}
+# make a model selection table with the statistics for each model for this model
+hData.m1 <- drm(RelArea ~ Conc, 
+                format(setStrain, trim=TRUE),
+                fct=LL.4(),
+                data=hormeticData)
+
+hormModelSelection <- mselect(hData.m1, list(W2.4(), CRS.4c(), BC.4()))
+tableModelSel <- hormModelSelection[,c(1,2,4)]
+```
