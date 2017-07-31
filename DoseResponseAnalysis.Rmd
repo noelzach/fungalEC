@@ -3,9 +3,9 @@ title: "Dose Response Analysis"
 author: "Zachary Noel"
 date: "January 14, 2016"
 output:
-  html_document: default
   md_document:
     variant: markdown_github
+  html_document: default
 ---
 ####Intro:
 The following code was written to analyze dose response data from fungal and oomycete fungicide sensitivity studies. It is written in an attempt to point out some issues, we've come accross, when dealing with these data and how we have dealt with them. 
